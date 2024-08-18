@@ -1,6 +1,7 @@
 const express = require('express');
 const https = require('https');
 const bodyParser = require('body-parser');
+const fs = require('fs');
 
 const app = express();
 const port = 3000;
@@ -52,7 +53,10 @@ app.post('/check', (req, res) => {
     if (err) {
       res.send(`Error: ${err}`);
     } else {
-      res.send(`Certificate for ${hostname} expires on ${expiryDate}`);
+      const log1 = res.send(`Certificate for ${hostname} expires on ${expiryDate}`);
+      // fs.writeFile('./logs/output_log.txt', `${log1}`, 'utf-8', err => {
+      //   console.log('Log saved')
+      } )
     }
   });
 });
