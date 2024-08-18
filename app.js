@@ -56,7 +56,7 @@ app.post('/check', (req, res) => {
       const log1 = res.send(`Certificate for ${hostname} expires on ${expiryDate}`);
       // fs.writeFile('./logs/output_log.txt', `${log1}`, 'utf-8', err => {
       //   console.log('Log saved')
-      } )
+      // } )
     }
   });
 });
