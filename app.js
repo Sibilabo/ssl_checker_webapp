@@ -2,20 +2,20 @@ const express = require('express');
 const https = require('https');
 const bodyParser = require('body-parser');
 const fs = require('fs');
-const axios = require('axios'); // Dodanie axios do wysyłania powiadomień
+const axios = require('axios');
 
 const app = express();
 const port = 3000;
 
-// Zmienna przechowująca webhook URL Discorda
-const discordWebhookUrl = 'YOUR_DISCORD_WEBHOOK_URL';
+// Webhook URL Discorda
+const discordWebhookUrl = 'https://discord.com/api/webhooks/1275235088031940639/TeU8KGKXj52Aw_2CDR_ODkiaV-9gfG2NMyIyiwYFt4Jju5njEa4a7gSg7_N8z-XJVloQ';
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Lista stron do sprawdzania
 let websites = [];
 
-// Strona główna z formularzem
+// Strona główna z formularzem i tabelą
 app.get('/', (req, res) => {
   let websiteListHtml = websites.map((site, index) => `
     <tr>
@@ -54,6 +54,8 @@ app.get('/', (req, res) => {
       <button type="submit">Add Website</button>
     </form>
     <br>
+    <button onclick="window.location.href='/check-now'">Check Now</button>
+    <br><br>
     <table border="1">
       <tr>
         <th>Hostname</th>
@@ -76,7 +78,6 @@ app.post('/add', (req, res) => {
   const newSite = { hostname, port, daysLeft: 'Checking...', expiryDate: 'Checking...', notify: false };
   websites.push(newSite);
 
-  // Natychmiastowe sprawdzenie certyfikatu
   checkSslExpiry(hostname, port, (err, daysLeft, expiryDate) => {
     if (!err) {
       newSite.daysLeft = daysLeft;
@@ -86,7 +87,6 @@ app.post('/add', (req, res) => {
       newSite.expiryDate = 'Unknown';
     }
 
-    // Przekierowanie po aktualizacji
     res.redirect('/');
   });
 });
@@ -125,7 +125,7 @@ app.post('/update', (req, res) => {
   const port = req.body.port;
 
   websites[index] = { hostname, port, daysLeft: 'Checking...', expiryDate: 'Checking...', notify: websites[index].notify };
-  
+
   checkSslExpiry(hostname, port, (err, daysLeft, expiryDate) => {
     if (!err) {
       websites[index].daysLeft = daysLeft;
@@ -145,6 +145,13 @@ app.post('/toggle-notification', (req, res) => {
   res.redirect('/');
 });
 
+// Sprawdzenie certyfikatów i wysłanie powiadomień
+app.get('/check-now', (req, res) => {
+  checkAndUpdateStatus(() => {
+    res.redirect('/');
+  });
+});
+
 // Funkcja sprawdzania SSL
 function checkSslExpiry(hostname, port, callback) {
   console.log('Checking SSL expiry for:', hostname);
@@ -160,7 +167,7 @@ function checkSslExpiry(hostname, port, callback) {
     if (cert && cert.valid_to) {
       const expiryDate = new Date(cert.valid_to);
       const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
-      callback(null, daysLeft, expiryDate.toISOString().substring(0, 10)); // Zwracamy także datę w formacie YYYY-MM-DD
+      callback(null, daysLeft, expiryDate.toISOString().substring(0, 10)); // YYYY-MM-DD
     } else {
       callback('No certificate found');
     }
@@ -173,20 +180,26 @@ function checkSslExpiry(hostname, port, callback) {
   req.end();
 }
 
-// Sprawdzanie i aktualizacja statusu
-function checkAndUpdateStatus() {
+// Funkcja aktualizacji i sprawdzania powiadomień
+function checkAndUpdateStatus(callback) {
+  let completedRequests = 0;
   websites.forEach((site, index) => {
     checkSslExpiry(site.hostname, site.port, (err, daysLeft, expiryDate) => {
+      completedRequests++;
       if (!err) {
         websites[index].daysLeft = daysLeft;
         websites[index].expiryDate = expiryDate;
-        // Powiadomienie na Discordzie, jeśli zaznaczono opcję i pozostało mniej niż 30 dni
+
         if (site.notify && daysLeft <= 30) {
           sendDiscordNotification(site.hostname, daysLeft, expiryDate);
         }
       } else {
         websites[index].daysLeft = `Error: ${err}`;
         websites[index].expiryDate = 'Unknown';
+      }
+
+      if (completedRequests === websites.length) {
+        callback();
       }
     });
   });
@@ -201,8 +214,10 @@ function sendDiscordNotification(hostname, daysLeft, expiryDate) {
   .catch(err => console.error('Error sending notification:', err));
 }
 
-// Uruchamiamy aktualizację co 12 godzin
-setInterval(checkAndUpdateStatus, 12 * 60 * 60 * 1000);
+// Regularna aktualizacja co 12 godzin
+setInterval(() => {
+  checkAndUpdateStatus(() => console.log('Periodic check completed.'));
+}, 12 * 60 * 60 * 1000);
 
 app.listen(port, () => {
   console.log(`App running at http://localhost:${port}`);
