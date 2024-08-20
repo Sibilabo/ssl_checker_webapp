@@ -3,6 +3,7 @@ const https = require('https');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const axios = require('axios');
+const { now } = require('moment');
 
 const app = express();
 const port = 3000;
@@ -154,28 +155,42 @@ app.get('/check-now', (req, res) => {
 
 // Funkcja sprawdzania SSL
 function checkSslExpiry(hostname, port, callback) {
-  console.log('Checking SSL expiry for:', hostname);
+  console.log(`Checking SSL expiry for: ${hostname}:${port}`);
   const options = {
     hostname: hostname,
     port: port,
     method: 'GET',
-    rejectUnauthorized: false
+    rejectUnauthorized: false,
+    agent: false,
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    }
   };
 
   const req = https.request(options, (res) => {
     const cert = res.connection.getPeerCertificate();
     if (cert && cert.valid_to) {
+      console.log(`Certyficate found: ${JSON.stringify(cert)}`);
       const expiryDate = new Date(cert.valid_to);
       const daysLeft = Math.ceil((expiryDate - new Date()) / (1000 * 60 * 60 * 24));
       callback(null, daysLeft, expiryDate.toISOString().substring(0, 10)); // YYYY-MM-DD
     } else {
+      console.log(`No certyficate was found for ${hostname}:${port}`);
       callback('No certificate found');
     }
+    res.resume();
   });
 
   req.on('error', (e) => {
+    console.error(`Request error for ${hostname}:${port} - ${e.message}`);
     callback(e.message);
   });
+
+  req.on('close', () => {
+    console.log(`Connection closed for ${hostname}:${port}`);
+  })
 
   req.end();
 }
