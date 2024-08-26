@@ -4,9 +4,35 @@ const bodyParser = require('body-parser');
 const fs = require('fs');
 const axios = require('axios');
 const { now } = require('moment');
+const mongoose = require('mongoose'); //dodanie wpisu o bibliotece
 
+const mongoURI = 'mongodb://localhost:27017/sslchecker';
 const app = express();
 const port = 3000;
+
+// //Połączenie z MongoDB
+// mongoose.connect(mongoURI, {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true,
+// });
+
+// const db = mongoose.connection;
+// db.on('error', console.error.bind(console, 'MongoDB connection error: '));
+// db.once('open', () => {
+//   console.log('Connected to MongoDB')
+// });
+
+// //Schemat bazy danych
+// const websiteSchema = new mongoose.Schema({
+//   hostname: { type: String, required: true },
+//   port: { type: String, required: true },
+//   daysLeft: String,
+//   expiryDate: String,
+//   notify: { type: Boolean, default: false },
+// });
+
+const Website = mongoose.model('Website', websiteSchema);
+
 
 // Webhook URL Discorda
 const discordWebhookUrl = 'https://discord.com/api/webhooks/1275235088031940639/TeU8KGKXj52Aw_2CDR_ODkiaV-9gfG2NMyIyiwYFt4Jju5njEa4a7gSg7_N8z-XJVloQ';
