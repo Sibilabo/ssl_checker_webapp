@@ -4,47 +4,50 @@ const bodyParser = require('body-parser');
 const fs = require('fs');
 const axios = require('axios');
 const { now } = require('moment');
-const mongoose = require('mongoose'); //dodanie wpisu o bibliotece
+const mongoose = require('mongoose');
+const { resolve } = require('path');
 
-const mongoURI = 'mongodb://localhost:27017/sslchecker';
+const mongoURI = 'mongodb://localhost:27017/sslchecker'; //local mongodb
 const app = express();
 const port = 3000;
 
-// //Połączenie z MongoDB
-// mongoose.connect(mongoURI, {
-//   useNewUrlParser: true,
-//   useUnifiedTopology: true,
-// });
+//Connecting to MongoDB
+mongoose.connect(mongoURI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
-// const db = mongoose.connection;
-// db.on('error', console.error.bind(console, 'MongoDB connection error: '));
-// db.once('open', () => {
-//   console.log('Connected to MongoDB')
-// });
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'MongoDB connection error: '));
+db.once('open', () => {
+  console.log('Connected to MongoDB')
+});
 
-// //Schemat bazy danych
-// const websiteSchema = new mongoose.Schema({
-//   hostname: { type: String, required: true },
-//   port: { type: String, required: true },
-//   daysLeft: String,
-//   expiryDate: String,
-//   notify: { type: Boolean, default: false },
-// });
+//Database schema
+const websiteSchema = new mongoose.Schema({
+  hostname: { type: String, required: true },
+  port: { type: String, required: true },
+  daysLeft: String,
+  expiryDate: String,
+  notify: { type: Boolean, default: false },
+});
 
 const Website = mongoose.model('Website', websiteSchema);
 
 
-// Webhook URL Discorda
+// Discord's webhook
 const discordWebhookUrl = 'https://discord.com/api/webhooks/1275235088031940639/TeU8KGKXj52Aw_2CDR_ODkiaV-9gfG2NMyIyiwYFt4Jju5njEa4a7gSg7_N8z-XJVloQ';
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Lista stron do sprawdzania
+// Website's list
 let websites = [];
 
-// Strona główna z formularzem i tabelą
-app.get('/', (req, res) => {
-  let websiteListHtml = websites.map((site, index) => `
+// Main webpage
+app.get('/', async (req, res) => {
+  try {
+    const websites = await Website.find({});
+    let websiteListHtml = websites.map((site, id) => `
     <tr>
       <td>${site.hostname}</td>
       <td>${site.port}</td>
@@ -52,17 +55,17 @@ app.get('/', (req, res) => {
       <td>${site.expiryDate || 'Unknown'}</td>
       <td>
         <form action="/delete" method="post" style="display:inline;">
-          <input type="hidden" name="index" value="${index}">
-          <button type="submit">Usuń</button>
+          <input type="hidden" name="id" value="${site._id}">
+          <button type="submit">Delete</button>
         </form>
         <form action="/edit" method="get" style="display:inline;">
-          <input type="hidden" name="index" value="${index}">
-          <button type="submit">Edytuj</button>
+          <input type="hidden" name="id" value="${site._id}">
+          <button type="submit">Edit</button>
         </form>
       </td>
       <td>
         <form action="/toggle-notification" method="post">
-          <input type="hidden" name="index" value="${index}">
+          <input type="hidden" name="id" value="${site._id}">
           <input type="checkbox" name="notify" ${site.notify ? 'checked' : ''} onchange="this.form.submit()">
         </form>
       </td>
@@ -95,91 +98,179 @@ app.get('/', (req, res) => {
       ${websiteListHtml}
     </table>
   `);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error retreving websites');
+  }
 });
 
-// Dodawanie nowej strony i natychmiastowe sprawdzenie
-app.post('/add', (req, res) => {
+//ROUTES
+
+app.post('/add', async (req, res) => {
   const hostname = req.body.hostname;
   const port = req.body.port;
 
-  const newSite = { hostname, port, daysLeft: 'Checking...', expiryDate: 'Checking...', notify: false };
-  websites.push(newSite);
-
-  checkSslExpiry(hostname, port, (err, daysLeft, expiryDate) => {
-    if (!err) {
-      newSite.daysLeft = daysLeft;
-      newSite.expiryDate = expiryDate;
-    } else {
-      newSite.daysLeft = `Error: ${err}`;
-      newSite.expiryDate = 'Unknown';
-    }
-
-    res.redirect('/');
+  const newSite = new Website({
+    hostname,
+    port,
+    daysLeft: 'Checking...',
+    expiryDate: 'Checking...',
+    notify: false,
   });
-});
-
-// Usuwanie strony
-app.post('/delete', (req, res) => {
-  const index = req.body.index;
-  websites.splice(index, 1);
-  res.redirect('/');
-});
-
-// Edycja strony
-app.get('/edit', (req, res) => {
-  const index = req.query.index;
-  const site = websites[index];
   
-  res.send(`
-    <form action="/update" method="post">
-      <input type="hidden" name="index" value="${index}">
-      <label for="hostname">Enter website hostname:</label>
-      <input type="text" id="hostname" name="hostname" value="${site.hostname}" required>
-      <label for="port">Choose port:</label>
-      <select id="port" name="port">
-        <option value="443" ${site.port === '443' ? 'selected' : ''}>443</option>
-        <option value="80" ${site.port === '80' ? 'selected' : ''}>80</option>
-      </select>
-      <button type="submit">Update Website</button>
-    </form>
-  `);
+  try {
+    const savedSite = await newSite.save();
+    checkSslExpiry(hostname, port, async (err, daysLeft, expiryDate) => {
+      if (!err) {
+        savedSite.daysLeft = daysLeft;
+        savedSite.expiryDate = expiryDate;
+        await savedSite.save();
+      } else {
+        savedSite.daysLeft = `Error: ${err}`;
+        savedSite.expiryDate = 'Unknown';
+        await savedSite.save()
+      }
+      res.redirect('/');
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error saving website');
+  }
+})
+
+
+app.post('/delete', async (req, res) => {
+  const id = req.body.id;
+  try {
+    await Website.findByIdAndDelete(id);
+    res.redirect('/');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error deleting website');
+  }
 });
 
-// Aktualizacja strony
-app.post('/update', (req, res) => {
-  const index = req.body.index;
+
+app.get('/edit', async (req, res) => {
+  const id = req.query.id;
+  try {
+    const site = await Website.findById(id);
+    res.send(`
+      <form action="/update" method="post">
+        <input type="hidden" name="id" value="${id}">
+        <label for="hostname">Enter website hostname:</label>
+        <input type="text" id="hostname" name="hostname" value="${site.hostname}" required>
+        <label for="port">Choose port:</label>
+        <select id="port" name="port">
+          <option value="443" ${site.port === '443' ? 'selected' : ''}>443</option>
+          <option value="80" ${site.port === '80' ? 'selected' : ''}>80</option>
+        </select>
+        <button type="submit">Update Website</button>
+      </form>    
+    `)
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error retrieving website');
+  }
+});
+
+app.post('/update', async (req, res) => {
+  const id = req.body.id;
   const hostname = req.body.hostname;
   const port = req.body.port;
 
-  websites[index] = { hostname, port, daysLeft: 'Checking...', expiryDate: 'Checking...', notify: websites[index].notify };
+  try {
+    const site = await Website.findById(id);
+    site.hostname = hostname;
+    site.port = port;
+    site.daysLeft = 'Checking...';
+    site.expiryDate = 'Checking...';
+    await site.save();
 
-  checkSslExpiry(hostname, port, (err, daysLeft, expiryDate) => {
-    if (!err) {
-      websites[index].daysLeft = daysLeft;
-      websites[index].expiryDate = expiryDate;
-    } else {
-      websites[index].daysLeft = `Error: ${err}`;
-      websites[index].expiryDate = 'Unknown';
+    checkSslExpiry(hostname, port, async (err, daysLeft, expiryDate) => {
+      if (!err) {
+        site.daysLeft = daysLeft;
+        site.expiryDate = expiryDate;
+      } else {
+        site.daysLeft = `Error: ${err}`;
+        site.expiryDate = 'Unknown';
+      }
+      await site.save();
+      res.redirect('/');
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error updating website');
+  }
+});
+
+
+app.post('/toggle-notification', async (req, res) => {
+  const id = req.body.id;
+
+  console.log(req.body.id); // For debugging purposes
+
+  try {
+    const site = await Website.findById(id); 
+
+    if (!site) {
+      console.error('Website noot found');
+      return res.status(404).send('Website not found');
     }
+
+    site.notify = !site.notify;
+    await site.save();
     res.redirect('/');
-  });
+  } catch (err) {
+    console.error('Error updateting notification status', err);
+    res.status(500).send('Error updating notification status');
+  }
 });
 
-// Przełącznik powiadomień
-app.post('/toggle-notification', (req, res) => {
-  const index = req.body.index;
-  websites[index].notify = !websites[index].notify;
-  res.redirect('/');
-});
-
-// Sprawdzenie certyfikatów i wysłanie powiadomień
+// Checking SSL certificates and sending notifications
 app.get('/check-now', (req, res) => {
   checkAndUpdateStatus(() => {
     res.redirect('/');
   });
 });
 
-// Funkcja sprawdzania SSL
+async function checkAndUpdateStatus(callback) {
+  try {
+    const websites = await Website.find({}); //Downloading websites from database
+    let completedRequests = 0;
+
+    for (const site of websites) {
+      await new Promise((resolve) => {
+        checkSslExpiry(site.hostname, site.port, async (err, daysLeft, expiryDate) => {
+          completedRequests++;
+          if (!err) {
+            site.daysLeft = daysLeft;
+            site.expiryDate = expiryDate;
+
+            if (site.notify && daysLeft <= 30) {
+              sendDiscordNotification(site.hostname, daysLeft, expiryDate);
+            }
+          } else {
+            site.daysLeft = `Error: ${err}`;
+            site.expiryDate = 'Unknown';
+          }
+          await site.save();
+
+          resolve(); //Ending of Promise
+        });
+      });
+    }
+
+        if (completedRequests === websites.length) {
+          callback();
+        }
+      } catch (err) {
+    console.error('Error checking and updateing websites:', err);
+    callback();
+  }
+}
+
+// SSL checking function
 function checkSslExpiry(hostname, port, callback) {
   console.log(`Checking SSL expiry for: ${hostname}:${port}`);
   const options = {
@@ -221,32 +312,7 @@ function checkSslExpiry(hostname, port, callback) {
   req.end();
 }
 
-// Funkcja aktualizacji i sprawdzania powiadomień
-function checkAndUpdateStatus(callback) {
-  let completedRequests = 0;
-  websites.forEach((site, index) => {
-    checkSslExpiry(site.hostname, site.port, (err, daysLeft, expiryDate) => {
-      completedRequests++;
-      if (!err) {
-        websites[index].daysLeft = daysLeft;
-        websites[index].expiryDate = expiryDate;
-
-        if (site.notify && daysLeft <= 30) {
-          sendDiscordNotification(site.hostname, daysLeft, expiryDate);
-        }
-      } else {
-        websites[index].daysLeft = `Error: ${err}`;
-        websites[index].expiryDate = 'Unknown';
-      }
-
-      if (completedRequests === websites.length) {
-        callback();
-      }
-    });
-  });
-}
-
-// Wysyłanie powiadomienia na Discorda
+// Sending discord notifications
 function sendDiscordNotification(hostname, daysLeft, expiryDate) {
   axios.post(discordWebhookUrl, {
     content: `⚠️ SSL Certificate Alert: The certificate for ${hostname} will expire in ${daysLeft} days (Expiry Date: ${expiryDate}).`
@@ -255,7 +321,7 @@ function sendDiscordNotification(hostname, daysLeft, expiryDate) {
   .catch(err => console.error('Error sending notification:', err));
 }
 
-// Regularna aktualizacja co 12 godzin
+// Checking in every 12 hours
 setInterval(() => {
   checkAndUpdateStatus(() => console.log('Periodic check completed.'));
 }, 12 * 60 * 60 * 1000);
