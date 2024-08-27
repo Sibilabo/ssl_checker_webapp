@@ -20,6 +20,12 @@ router.get('/', async (req, res) => {
         <td>${site.daysLeft || 'Unknown'}</td>
         <td>${site.expiryDate || 'Unknown'}</td>
         <td>
+          <form action="/toggle-notification" method="post">
+            <input type="hidden" name="id" value="${site._id}">
+            <input type="checkbox" name="notify" ${site.notify ? 'checked' : ''} onchange="this.form.submit()">
+          </form>
+        </td>
+        <td>
           <form action="/delete" method="post" style="display:inline;">
             <input type="hidden" name="id" value="${site._id}">
             <button type="submit">Delete</button>
@@ -29,40 +35,45 @@ router.get('/', async (req, res) => {
             <button type="submit">Edit</button>
           </form>
         </td>
-        <td>
-          <form action="/toggle-notification" method="post">
-            <input type="hidden" name="id" value="${site._id}">
-            <input type="checkbox" name="notify" ${site.notify ? 'checked' : ''} onchange="this.form.submit()">
-          </form>
-        </td>
       </tr>
     `).join('');
 
     res.send(`
-      <form action="/add" method="post">
-        <label for="hostname">Enter website hostname:</label>
-        <input type="text" id="hostname" name="hostname" required>
-        <label for="port">Choose port:</label>
-        <select id="port" name="port">
-          <option value="443">443</option>
-          <option value="80">80</option>
-        </select>
-        <button type="submit">Add Website</button>
-      </form>
-      <br>
-      <button onclick="window.location.href='/check-now'">Check Now</button>
-      <br><br>
-      <table border="1">
-        <tr>
-          <th>Hostname</th>
-          <th>Port</th>
-          <th>Days Left</th>
-          <th>Expiry Date</th>
-          <th>Actions</th>
-          <th>Notify</th>
-        </tr>
-        ${websiteListHtml}
-      </table>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>SSL Checker</title>
+        <link rel="stylesheet" href="/css/style.css">
+      </head>
+      <body>
+        <form action="/add" method="post">
+          <label for="hostname">Enter website hostname:</label>
+          <input type="text" id="hostname" name="hostname" required>
+          <label for="port">Choose port:</label>
+          <select id="port" name="port">
+            <option value="443">443</option>
+            <option value="80">80</option>
+          </select>
+          <button type="submit">Add Website</button>
+        </form>
+        <br>
+        <button onclick="window.location.href='/check-now'">Check Now</button>
+        <br><br>
+        <table border="1">
+          <tr>
+            <th>Hostname</th>
+            <th>Port</th>
+            <th>Days Left</th>
+            <th>Expiry Date</th>
+            <th>Notify on Discord</th>
+            <th>Actions</th>
+          </tr>
+          ${websiteListHtml}
+        </table>
+      </body>
+      </html>
     `);
   } catch (err) {
     console.error(err);
